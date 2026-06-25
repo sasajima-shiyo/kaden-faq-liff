@@ -143,7 +143,7 @@
       <div id="status" class="status">画面を準備しています。</div>
       <div class="info">
         qr_token：<span id="qrTokenLabel">-</span><br>
-        build：liff-register-kaden-faq-20260625-gasurl-fix-001
+        build：liff-register-kaden-faq-20260625-dedupe-001
       </div>
     </section>
   </main>
@@ -155,6 +155,7 @@
     let lineUserId = '';
     let qrToken = '';
     let currentProduct = null;
+    let existingRegistration = null;
 
     const productName = document.getElementById('productName');
     const modelNumber = document.getElementById('modelNumber');
@@ -291,6 +292,44 @@
       setStatus('商品を確認しました。LINE認証を確認しています。');
     }
 
+    function showAlreadyRegistered() {
+      registerButton.disabled = true;
+      registerButton.textContent = '登録済みです';
+      closeButton.classList.remove('hidden');
+      setStatus('この商品は登録済みです。LINEトーク画面でこの商品のFAQを質問できます。', 'success');
+    }
+
+    async function checkRegistration() {
+      if (!lineUserId || !qrToken || !currentProduct) {
+        return;
+      }
+
+      setStatus('登録状況を確認しています。');
+
+      const url = GAS_WEB_APP_URL
+        + '?action=check_product_registration_by_qr'
+        + '&line_user_id=' + encodeURIComponent(lineUserId)
+        + '&qr_token=' + encodeURIComponent(qrToken);
+
+      const data = await fetchJson(url);
+
+      if (!data.ok) {
+        registerButton.disabled = true;
+        setStatus('登録状況を確認できませんでした。' + (data.error ? ' ' + data.error : ''), 'error');
+        return;
+      }
+
+      if (data.already_registered) {
+        existingRegistration = data.registration || {};
+        showAlreadyRegistered();
+        return;
+      }
+
+      registerButton.disabled = false;
+      registerButton.textContent = 'この商品を登録する';
+      setStatus('登録ボタンを押してください。');
+    }
+
     async function initLiff() {
       if (typeof liff === 'undefined') {
         registerButton.disabled = true;
@@ -316,8 +355,7 @@
       }
 
       if (currentProduct) {
-        registerButton.disabled = false;
-        setStatus('登録ボタンを押してください。');
+        await checkRegistration();
       }
     }
 
@@ -346,6 +384,12 @@
         if (!data.ok) {
           registerButton.disabled = false;
           setStatus('登録に失敗しました。' + (data.error ? ' ' + data.error : ''), 'error');
+          return;
+        }
+
+        if (data.already_registered) {
+          existingRegistration = data.registration || {};
+          showAlreadyRegistered();
           return;
         }
 
