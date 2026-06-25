@@ -143,8 +143,7 @@
       <div id="status" class="status">画面を準備しています。</div>
       <div class="info">
         qr_token：<span id="qrTokenLabel">-</span><br>
-        build：liff-register-kaden-faq-20260625-dedupe-001
-      </div>
+        build：liff-register-kaden-faq-20260625-singlecheck-001</div>
     </section>
   </main>
 
@@ -156,6 +155,7 @@
     let qrToken = '';
     let currentProduct = null;
     let existingRegistration = null;
+    let isBusy = false;
 
     const productName = document.getElementById('productName');
     const modelNumber = document.getElementById('modelNumber');
@@ -263,33 +263,17 @@
       });
     }
 
-    async function loadProduct() {
-      if (!qrToken) {
+    function updateProductView(product) {
+      currentProduct = product || null;
+
+      if (!currentProduct) {
         productName.textContent = '商品情報を取得できません';
         modelNumber.textContent = '型番：-';
-        setStatus('qr_tokenが取得できませんでした。', 'error');
         return;
       }
 
-      setStatus('商品情報を取得しています。');
-
-      const url = GAS_WEB_APP_URL
-        + '?action=get_product_by_qr'
-        + '&qr_token=' + encodeURIComponent(qrToken);
-
-      const data = await fetchJson(url);
-
-      if (!data.ok) {
-        productName.textContent = '商品情報を取得できません';
-        modelNumber.textContent = '型番：-';
-        setStatus('商品情報を取得できませんでした。' + (data.error ? ' ' + data.error : ''), 'error');
-        return;
-      }
-
-      currentProduct = data.product;
       productName.textContent = currentProduct.product_name || '商品名未設定';
       modelNumber.textContent = '型番：' + (currentProduct.model_number || '-');
-      setStatus('商品を確認しました。LINE認証を確認しています。');
     }
 
     function showAlreadyRegistered() {
@@ -299,13 +283,31 @@
       setStatus('この商品は登録済みです。LINEトーク画面でこの商品のFAQを質問できます。', 'success');
     }
 
-    async function checkRegistration() {
-      if (!lineUserId || !qrToken || !currentProduct) {
-        return;
+    function showReadyToRegister() {
+      registerButton.disabled = false;
+      registerButton.textContent = 'この商品を登録する';
+      closeButton.classList.add('hidden');
+      setStatus('登録ボタンを押してください。');
+    }
+
+    async function initLiffAndGetUserId() {
+      if (typeof liff === 'undefined') {
+        throw new Error('LIFF SDKを読み込めませんでした。');
       }
 
-      setStatus('登録状況を確認しています。');
+      await liff.init({ liffId: LIFF_ID });
 
+      if (!liff.isLoggedIn()) {
+        setStatus('LINEログインへ進みます。');
+        liff.login({ redirectUri: window.location.href });
+        return '';
+      }
+
+      const profile = await liff.getProfile();
+      return profile.userId || '';
+    }
+
+    async function checkProductAndRegistration() {
       const url = GAS_WEB_APP_URL
         + '?action=check_product_registration_by_qr'
         + '&line_user_id=' + encodeURIComponent(lineUserId)
@@ -314,10 +316,12 @@
       const data = await fetchJson(url);
 
       if (!data.ok) {
-        registerButton.disabled = true;
-        setStatus('登録状況を確認できませんでした。' + (data.error ? ' ' + data.error : ''), 'error');
+        updateProductView(null);
+        setStatus('商品情報または登録状況を確認できませんでした。' + (data.error ? ' ' + data.error : ''), 'error');
         return;
       }
+
+      updateProductView(data.product);
 
       if (data.already_registered) {
         existingRegistration = data.registration || {};
@@ -325,41 +329,14 @@
         return;
       }
 
-      registerButton.disabled = false;
-      registerButton.textContent = 'この商品を登録する';
-      setStatus('登録ボタンを押してください。');
-    }
-
-    async function initLiff() {
-      if (typeof liff === 'undefined') {
-        registerButton.disabled = true;
-        setStatus('LIFF SDKを読み込めませんでした。', 'error');
-        return;
-      }
-
-      await liff.init({ liffId: LIFF_ID });
-
-      if (!liff.isLoggedIn()) {
-        setStatus('LINEログインへ進みます。');
-        liff.login({ redirectUri: window.location.href });
-        return;
-      }
-
-      const profile = await liff.getProfile();
-      lineUserId = profile.userId || '';
-
-      if (!lineUserId) {
-        registerButton.disabled = true;
-        setStatus('LINEユーザーIDを取得できませんでした。', 'error');
-        return;
-      }
-
-      if (currentProduct) {
-        await checkRegistration();
-      }
+      showReadyToRegister();
     }
 
     registerButton.addEventListener('click', async function() {
+      if (isBusy) {
+        return;
+      }
+
       if (!lineUserId) {
         setStatus('LINEユーザーIDを取得できませんでした。', 'error');
         return;
@@ -370,6 +347,7 @@
         return;
       }
 
+      isBusy = true;
       registerButton.disabled = true;
       setStatus('商品を登録しています。');
 
@@ -387,6 +365,8 @@
           return;
         }
 
+        updateProductView(data.product);
+
         if (data.already_registered) {
           existingRegistration = data.registration || {};
           showAlreadyRegistered();
@@ -398,6 +378,8 @@
       } catch (err) {
         registerButton.disabled = false;
         setStatus('登録中にエラーが発生しました。' + String(err), 'error');
+      } finally {
+        isBusy = false;
       }
     });
 
@@ -413,20 +395,26 @@
       qrToken = getQrTokenFromUrl();
       qrTokenLabel.textContent = qrToken || '-';
 
-      try {
-        await loadProduct();
-      } catch (err) {
-        productName.textContent = '商品情報を取得できません';
-        modelNumber.textContent = '型番：-';
-        setStatus('商品情報の取得中にエラーが発生しました。' + String(err), 'error');
+      if (!qrToken) {
+        updateProductView(null);
+        registerButton.disabled = true;
+        setStatus('qr_tokenが取得できませんでした。', 'error');
         return;
       }
 
       try {
-        await initLiff();
+        setStatus('LINE認証を確認しています。');
+        lineUserId = await initLiffAndGetUserId();
+
+        if (!lineUserId) {
+          return;
+        }
+
+        setStatus('商品情報と登録状況を確認しています。');
+        await checkProductAndRegistration();
       } catch (err) {
         registerButton.disabled = true;
-        setStatus('LIFFの初期化またはプロフィール取得に失敗しました。' + String(err), 'error');
+        setStatus('初期化中にエラーが発生しました。' + String(err), 'error');
       }
     }
 
