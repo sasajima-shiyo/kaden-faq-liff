@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>商品登録</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #182033;
+      --sub: #667085;
+      --line: #d7dce5;
+      --main: #06c755;
+      --danger: #b42318;
+      --disabled: #aab2c0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Yu Gothic", "YuGothic", sans-serif;
+    }
+
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 24px 18px 40px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 22px;
+      box-shadow: 0 8px 24px rgba(24, 32, 51, 0.08);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--sub);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 25px;
+      line-height: 1.35;
+    }
+
+    .model {
+      margin: 0 0 20px;
+      color: var(--sub);
+      font-size: 15px;
+    }
+
+    .desc {
+      margin: 0 0 22px;
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .status {
+      margin: 16px 0 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #f3f6fb;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 45px;
+    }
+
+    .status.error {
+      background: #fff0ed;
+      color: var(--danger);
+    }
+
+    .status.success {
+      background: #ecfdf3;
+      color: #027a48;
+    }
+
+    .info {
+      margin: 16px 0 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #f3f6fb;
+      color: var(--sub);
+      font-size: 13px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 15px 18px;
+      background: var(--main);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: var(--disabled);
+      cursor: not-allowed;
+    }
+
+    .secondary {
+      margin-top: 10px;
+      background: #1f2937;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <p class="eyebrow">LINE商品登録</p>
+      <h1 id="productName">商品情報を取得しています</h1>
+      <p class="model" id="modelNumber">型番：-</p>
+      <p class="desc">
+        この商品をLINEに登録すると、FAQ・保証・修理案内・取扱説明書をすぐ確認できます。
+      </p>
+
+      <button id="registerButton" disabled>この商品を登録する</button>
+      <button id="closeButton" class="secondary hidden">LINEトークへ戻る</button>
+
+      <div id="status" class="status">画面を準備しています。</div>
+      <div class="info">
+        qr_token：<span id="qrTokenLabel">-</span><br>
+        build：liff-register-kaden-faq-20260625-oachat-001</div>
+    </section>
+  </main>
+
+  <script>
+    const LIFF_ID = '2010498553-aASm4htE';
+    const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz_KUfbowQSUbkmTzpD7Vud0YCNPvNKSo1f-yTYVEtxM-GXaAY5U_OhLQKSynkMxFfTWQ/exec';
+    const LINE_OFFICIAL_ACCOUNT_CHAT_URL = 'https://line.me/R/oaMessage/%40227revut';
+
+    let lineUserId = '';
+    let qrToken = '';
+    let currentProduct = null;
+    let existingRegistration = null;
+    let isBusy = false;
+
+    const productName = document.getElementById('productName');
+    const modelNumber = document.getElementById('modelNumber');
+    const registerButton = document.getElementById('registerButton');
+    const closeButton = document.getElementById('closeButton');
+    const statusBox = document.getElementById('status');
+    const qrTokenLabel = document.getElementById('qrTokenLabel');
+
+    function setStatus(message, type) {
+      statusBox.textContent = message;
+      statusBox.classList.toggle('error', type === 'error');
+      statusBox.classList.toggle('success', type === 'success');
+    }
+
+    function safeDecode(value) {
+      try {
+        return decodeURIComponent(String(value || '').replace(/\+/g, ' '));
+      } catch (err) {
+        return String(value || '');
+      }
+    }
+
+    function extractQrTokenFromText(value) {
+      let text = String(value || '').trim();
+
+      if (!text) {
+        return '';
+      }
+
+      for (let i = 0; i < 3; i++) {
+        const decoded = safeDecode(text);
+
+        if (decoded === text) {
+          break;
+        }
+
+        text = decoded;
+      }
+
+      const cleaned = text.replace(/^#/, '').replace(/^\?/, '').replace(/^\//, '').replace(/^\?/, '');
+      const parts = cleaned.split(/[&?]/);
+
+      for (let i = 0; i < parts.length; i++) {
+        const pair = parts[i].split('=');
+        const key = safeDecode(pair[0] || '').trim();
+
+        if (key === 'qr_token') {
+          return safeDecode(pair.slice(1).join('=') || '').trim();
+        }
+      }
+
+      return '';
+    }
+
+    function getQrTokenFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const direct = params.get('qr_token');
+
+      if (direct) {
+        return String(direct).trim();
+      }
+
+      const liffState = params.get('liff.state');
+      const state = params.get('state');
+      const hash = window.location.hash || '';
+
+      return extractQrTokenFromText(liffState) || extractQrTokenFromText(state) || extractQrTokenFromText(hash);
+    }
+
+    function fetchJson(url) {
+      return new Promise(function(resolve, reject) {
+        const callbackName = '__kadenFaqJsonp_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        const script = document.createElement('script');
+        const separator = url.indexOf('?') >= 0 ? '&' : '?';
+        const timer = setTimeout(function() {
+          cleanup();
+          reject(new Error('JSONP timeout'));
+        }, 15000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          try {
+            delete window[callbackName];
+          } catch (err) {
+            window[callbackName] = undefined;
+          }
+
+          if (script.parentNode) {
+            script.parentNode.removeChild(script);
+          }
+        }
+
+        window[callbackName] = function(data) {
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = function() {
+          cleanup();
+          reject(new Error('JSONP request failed'));
+        };
+
+        script.src = url + separator + 'callback=' + encodeURIComponent(callbackName) + '&_=' + Date.now();
+        document.head.appendChild(script);
+      });
+    }
+
+    function updateProductView(product) {
+      currentProduct = product || null;
+
+      if (!currentProduct) {
+        productName.textContent = '商品情報を取得できません';
+        modelNumber.textContent = '型番：-';
+        return;
+      }
+
+      productName.textContent = currentProduct.product_name || '商品名未設定';
+      modelNumber.textContent = '型番：' + (currentProduct.model_number || '-');
+    }
+
+    function showAlreadyRegistered() {
+      registerButton.disabled = true;
+      registerButton.textContent = '登録済みです';
+      closeButton.classList.remove('hidden');
+      setStatus('この商品は登録済みです。LINEトーク画面でこの商品のFAQを質問できます。', 'success');
+    }
+
+    function showReadyToRegister() {
+      registerButton.disabled = false;
+      registerButton.textContent = 'この商品を登録する';
+      closeButton.classList.add('hidden');
+      setStatus('登録ボタンを押してください。');
+    }
+
+    async function initLiffAndGetUserId() {
+      if (typeof liff === 'undefined') {
+        throw new Error('LIFF SDKを読み込めませんでした。');
+      }
+
+      await liff.init({ liffId: LIFF_ID });
+
+      if (!liff.isLoggedIn()) {
+        setStatus('LINEログインへ進みます。');
+        liff.login({ redirectUri: window.location.href });
+        return '';
+      }
+
+      const profile = await liff.getProfile();
+      return profile.userId || '';
+    }
+
+    async function checkProductAndRegistration() {
+      const url = GAS_WEB_APP_URL
+        + '?action=check_product_registration_by_qr'
+        + '&line_user_id=' + encodeURIComponent(lineUserId)
+        + '&qr_token=' + encodeURIComponent(qrToken);
+
+      const data = await fetchJson(url);
+
+      if (!data.ok) {
+        updateProductView(null);
+        setStatus('商品情報または登録状況を確認できませんでした。' + (data.error ? ' ' + data.error : ''), 'error');
+        return;
+      }
+
+      updateProductView(data.product);
+
+      if (data.already_registered) {
+        existingRegistration = data.registration || {};
+        showAlreadyRegistered();
+        return;
+      }
+
+      showReadyToRegister();
+    }
+
+    registerButton.addEventListener('click', async function() {
+      if (isBusy) {
+        return;
+      }
+
+      if (!lineUserId) {
+        setStatus('LINEユーザーIDを取得できませんでした。', 'error');
+        return;
+      }
+
+      if (!qrToken) {
+        setStatus('qr_tokenが取得できませんでした。', 'error');
+        return;
+      }
+
+      isBusy = true;
+      registerButton.disabled = true;
+      setStatus('商品を登録しています。');
+
+      try {
+        const url = GAS_WEB_APP_URL
+          + '?action=register_product_by_qr'
+          + '&line_user_id=' + encodeURIComponent(lineUserId)
+          + '&qr_token=' + encodeURIComponent(qrToken);
+
+        const data = await fetchJson(url);
+
+        if (!data.ok) {
+          registerButton.disabled = false;
+          setStatus('登録に失敗しました。' + (data.error ? ' ' + data.error : ''), 'error');
+          return;
+        }
+
+        updateProductView(data.product);
+
+        if (data.already_registered) {
+          existingRegistration = data.registration || {};
+          showAlreadyRegistered();
+          return;
+        }
+
+        setStatus('商品を登録しました。LINEトーク画面でこの商品のFAQを質問できます。', 'success');
+        closeButton.classList.remove('hidden');
+      } catch (err) {
+        registerButton.disabled = false;
+        setStatus('登録中にエラーが発生しました。' + String(err), 'error');
+      } finally {
+        isBusy = false;
+      }
+    });
+
+    closeButton.addEventListener('click', function() {
+      window.location.href = LINE_OFFICIAL_ACCOUNT_CHAT_URL;
+    });
+
+    async function initPage() {
+      qrToken = getQrTokenFromUrl();
+      qrTokenLabel.textContent = qrToken || '-';
+
+      if (!qrToken) {
+        updateProductView(null);
+        registerButton.disabled = true;
+        setStatus('qr_tokenが取得できませんでした。', 'error');
+        return;
+      }
+
+      try {
+        setStatus('LINE認証を確認しています。');
+        lineUserId = await initLiffAndGetUserId();
+
+        if (!lineUserId) {
+          return;
+        }
+
+        setStatus('商品情報と登録状況を確認しています。');
+        await checkProductAndRegistration();
+      } catch (err) {
+        registerButton.disabled = true;
+        setStatus('初期化中にエラーが発生しました。' + String(err), 'error');
+      }
+    }
+
+    initPage();
+  </script>
+</body>
+</html>
