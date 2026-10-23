@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#173d63">
+  <title>ANABAS 修理受付</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root { --navy:#173d63; --ink:#17212b; --sub:#5e6d7d; --line:#dbe4ee; --paper:#fff; --base:#f4f7fa; --ok:#087d5b; --warn:#a85a00; --error:#b42318; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--base); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+    main { max-width:680px; min-height:100vh; margin:0 auto; padding:24px 16px calc(32px + env(safe-area-inset-bottom)); }
+    .brand { color:var(--navy); font-size:13px; font-weight:800; letter-spacing:.08em; }
+    h1 { margin:8px 0; font-size:26px; line-height:1.38; }
+    .lead { margin:0 0 20px; color:var(--sub); font-size:14px; line-height:1.75; }
+    .notice,.danger,.hint { margin:0 0 14px; padding:13px 14px; border-radius:12px; font-size:13px; line-height:1.65; }
+    .notice { background:#eaf3ff; color:#1b4c83; }
+    .notice.error { background:#fff0ee; color:var(--error); }
+    .danger { background:#fff4e8; color:#823e00; }
+    .hint { margin-top:6px; padding:10px 12px; background:#f5f7fa; color:var(--sub); }
+    .card { padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--paper); box-shadow:0 4px 16px rgba(23,61,99,.05); }
+    label { display:block; margin:0 0 14px; font-size:13px; font-weight:800; }
+    label span { color:var(--error); }
+    input,select,textarea { display:block; width:100%; margin-top:6px; padding:12px; border:1px solid #b7c4d1; border-radius:10px; background:#fff; color:var(--ink); font:inherit; font-size:16px; }
+    textarea { min-height:130px; resize:vertical; line-height:1.6; }
+    .check { display:flex; gap:9px; align-items:flex-start; margin:6px 0 14px; font-size:13px; font-weight:400; line-height:1.6; }
+    .check input { flex:0 0 auto; width:18px; height:18px; margin:2px 0 0; padding:0; }
+    .files { margin:0 0 10px; padding:12px; border:1px dashed #93a6bb; border-radius:10px; color:var(--sub); font-size:13px; line-height:1.65; }
+    .file-list { margin:8px 0 0; padding:0; list-style:none; color:var(--ink); }
+    .file-list li { margin:4px 0; }
+    button { width:100%; border:0; border-radius:12px; padding:14px 16px; background:var(--navy); color:#fff; font:inherit; font-size:16px; font-weight:800; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .hidden { display:none !important; }
+    .footer { margin:20px 2px 0; color:var(--sub); font-size:12px; line-height:1.7; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">ANABAS SUPPORT</div>
+    <h1>修理受付</h1>
+    <p class="lead">登録済みの商品を選び、症状と写真を送ってください。送信内容は、このLINEトークに控えとして表示されます。</p>
+    <div class="danger">煙・焦げ臭い・異常な発熱・電源コードの損傷などがある場合は、ただちに使用を中止してください。安全を確保したうえで、フォームから状況を送信してください。</div>
+    <div id="notice" class="notice">LINEアカウントを確認しています。</div>
+
+    <form id="repairForm" class="card hidden" novalidate>
+      <label>対象商品 <span>必須</span>
+        <select id="productSelect" required></select>
+      </label>
+      <div id="warrantyHint" class="hint"></div>
+
+      <label>症状 <span>必須</span>
+        <select id="symptomCategory" required>
+          <option value="">選択してください</option>
+          <option value="power">電源が入らない・動作しない</option>
+          <option value="sound">音が出ない・音がおかしい</option>
+          <option value="operation">操作・接続ができない</option>
+          <option value="damage">破損・部品の不具合</option>
+          <option value="safety">煙・異臭・発熱など安全上の異常</option>
+          <option value="other">その他</option>
+        </select>
+      </label>
+      <label>症状が起き始めた時期
+        <input id="occurredAt" type="date" max="">
+      </label>
+      <label>症状の詳細 <span>必須</span>
+        <textarea id="detail" maxlength="2000" placeholder="いつ、どの操作で、どのような状態になるかを入力してください。" required></textarea>
+      </label>
+
+      <label>状況・購入証明の写真（最大3枚）
+        <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+      </label>
+      <div class="files">本体の状態が分かる写真を添付してください。保証を利用する場合は、レシート・納品書・注文履歴など購入証明も添付してください。合計3枚までです。<ul id="fileList" class="file-list"></ul></div>
+
+      <label class="check"><input id="warrantyClaim" type="checkbox"><span>保証登録済みのため、保証を利用した修理を希望します。購入証明の写真を添付しました。</span></label>
+      <label id="safetyCheckWrap" class="check hidden"><input id="safetyCheck" type="checkbox"><span>使用を中止し、電源プラグを抜くなど安全を確保しました。</span></label>
+      <label class="check"><input id="privacyCheck" type="checkbox"><span>入力内容と画像を、修理対応およびその確認のために利用することに同意します。</span></label>
+      <button id="submitButton" type="submit">修理を申し込む</button>
+    </form>
+    <p class="footer">送信後、受付内容がこのLINEトークに表示されます。修理可否、保証適用、費用は担当者から同じトークで案内します。クレジットカード番号・身分証・第三者の個人情報が写る画像は送らないでください。</p>
+  </main>
+
+  <script>
+    const CONFIG = Object.freeze({
+      liffId: 'REPLACE_WITH_REPAIR_LIFF_ID',
+      webAppUrl: 'https://script.google.com/macros/s/AKfycbz_KUfbowQSUbkmTzpD7Vud0YCNPvNKSo1f-yTYVEtxM-GXaAY5U_OhLQKSynkMxFfTWQ/exec'
+    });
+    const MAX_IMAGE_COUNT = 3;
+    const MAX_IMAGE_BYTES = 1200000;
+    const state = { lineUserId:'', idToken:'', products:[], requestedQrToken:'', busy:false };
+    const notice = document.getElementById('notice');
+    const form = document.getElementById('repairForm');
+    const productSelect = document.getElementById('productSelect');
+    const imageInput = document.getElementById('imageInput');
+    const fileList = document.getElementById('fileList');
+    const submitButton = document.getElementById('submitButton');
+    const symptomCategory = document.getElementById('symptomCategory');
+
+    function setNotice(message, isError) {
+      notice.textContent = message;
+      notice.classList.toggle('error', !!isError);
+    }
+    function esc(value) {
+      return String(value == null ? '' : value).replace(/[&<>'"]/g, function(char) {
+        return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[char];
+      });
+    }
+    function safeDecode(value) {
+      try { return decodeURIComponent(String(value || '').replace(/\+/g, ' ')); }
+      catch (err) { return String(value || ''); }
+    }
+    function extractQrToken(value) {
+      let text = String(value || '').trim();
+      for (let i = 0; i < 3; i++) { const decoded = safeDecode(text); if (decoded === text) break; text = decoded; }
+      const match = text.match(/(?:^|[?&#])qr_token=([^&#&]+)/);
+      return match ? safeDecode(match[1]).trim() : '';
+    }
+    function getRequestedQrToken() {
+      const params = new URLSearchParams(window.location.search);
+      return String(params.get('qr_token') || '').trim() || extractQrToken(params.get('liff.state')) || extractQrToken(params.get('state')) || extractQrToken(window.location.hash || '');
+    }
+    function jsonp(action, parameters) {
+      return new Promise(function(resolve, reject) {
+        const callbackName = 'anabasRepairCallback_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        const query = new URLSearchParams(Object.assign({}, parameters || {}, { action:action, callback:callbackName }));
+        const script = document.createElement('script');
+        let done = false;
+        const cleanup = function() { if (script.parentNode) script.parentNode.removeChild(script); try { delete window[callbackName]; } catch (err) { window[callbackName] = undefined; } };
+        const timer = setTimeout(function() { if (done) return; done = true; cleanup(); reject(new Error('通信がタイムアウトしました。')); }, 15000);
+        window[callbackName] = function(result) { if (done) return; done = true; clearTimeout(timer); cleanup(); resolve(result || {}); };
+        script.onerror = function() { if (done) return; done = true; clearTimeout(timer); cleanup(); reject(new Error('通信に失敗しました。')); };
+        script.src = CONFIG.webAppUrl + '?' + query.toString();
+        document.head.appendChild(script);
+      });
+    }
+    function apiParameters(extra) { return Object.assign({}, extra || {}, { line_user_id:state.lineUserId, id_token:state.idToken }); }
+    function selectedProduct() { return state.products.filter(function(item) { return item.qr_token === productSelect.value; })[0] || null; }
+    function updateWarrantyHint() {
+      const item = selectedProduct();
+      const warranty = item && item.warranty || {};
+      const registered = warranty.status === 'registered' || warranty.status === 'active';
+      document.getElementById('warrantyHint').textContent = registered
+        ? 'この商品は「' + (warranty.status_label || '保証登録済み') + '」です。保証を希望する場合は、購入証明の画像を必ず添付してください。'
+        : '保証登録が未完了です。修理相談はできますが、保証を希望する場合は購入証明を添付してください。';
+    }
+    function renderProducts() {
+      if (!state.products.length) {
+        form.classList.add('hidden');
+        setNotice('登録済みの商品がありません。製品または箱のQRから、先に商品登録してください。', true);
+        return;
+      }
+      productSelect.innerHTML = state.products.map(function(item) {
+        const product = item.product || {};
+        const selected = item.qr_token === state.requestedQrToken ? ' selected' : '';
+        return '<option value="' + esc(item.qr_token) + '"' + selected + '>' + esc(product.product_name || '-') + '（' + esc(product.model_number || '-') + '）</option>';
+      }).join('');
+      form.classList.remove('hidden');
+      updateWarrantyHint();
+    }
+    function renderFiles() {
+      const files = Array.prototype.slice.call(imageInput.files || []);
+      fileList.innerHTML = files.map(function(file) { return '<li>' + esc(file.name) + '（' + Math.ceil(file.size / 1024) + 'KB）</li>'; }).join('');
+    }
+    function updateSafetyCheck() {
+      const isSafety = symptomCategory.value === 'safety';
+      document.getElementById('safetyCheckWrap').classList.toggle('hidden', !isSafety);
+      if (!isSafety) document.getElementById('safetyCheck').checked = false;
+    }
+    function dataUrlToBase64(dataUrl) { return String(dataUrl).split(',')[1] || ''; }
+    function loadImage(dataUrl) {
+      return new Promise(function(resolve, reject) { const image = new Image(); image.onload = function() { resolve(image); }; image.onerror = function() { reject(new Error('画像を読み込めませんでした。')); }; image.src = dataUrl; });
+    }
+    function blobToDataUrl(blob) {
+      return new Promise(function(resolve, reject) { const reader = new FileReader(); reader.onload = function() { resolve(reader.result); }; reader.onerror = function() { reject(new Error('画像を読み込めませんでした。')); }; reader.readAsDataURL(blob); });
+    }
+    function canvasToBlob(canvas, quality) {
+      return new Promise(function(resolve) { canvas.toBlob(resolve, 'image/jpeg', quality); });
+    }
+    async function compressImage(file) {
+      if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) throw new Error('JPEG、PNG、WebP画像のみ送信できます。');
+      const source = await blobToDataUrl(file);
+      const image = await loadImage(source);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      let blob = await canvasToBlob(canvas, 0.82);
+      if (blob && blob.size > MAX_IMAGE_BYTES) blob = await canvasToBlob(canvas, 0.68);
+      if (!blob || blob.size > MAX_IMAGE_BYTES) throw new Error('画像「' + file.name + '」の容量が大きすぎます。写真を撮り直してから送信してください。');
+      return { original_name:file.name, mime_type:'image/jpeg', data_base64:dataUrlToBase64(await blobToDataUrl(blob)), size_bytes:blob.size };
+    }
+    function getSubmitId() { return window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'repair-' + Date.now() + '-' + Math.random().toString(16).slice(2); }
+    async function waitForReceipt(submissionId) {
+      for (let attempt = 0; attempt < 7; attempt++) {
+        await new Promise(function(resolve) { setTimeout(resolve, 1800); });
+        const result = await jsonp('get_repair_submission_status', apiParameters({ submission_id:submissionId }));
+        if (result.ok && result.status === 'received') return result;
+        if (result.ok && (result.status === 'failed' || result.status === 'chat_message_failed')) throw new Error(result.message || '受付を完了できませんでした。');
+      }
+      throw new Error('受付確認に時間がかかっています。画面を閉じずに、時間をおいてもう一度お試しください。');
+    }
+    async function submitRepair(event) {
+      event.preventDefault();
+      if (state.busy) return;
+      const files = Array.prototype.slice.call(imageInput.files || []);
+      if (!productSelect.value || !symptomCategory.value || !document.getElementById('detail').value.trim()) {
+        setNotice('必須項目を入力してください。', true); return;
+      }
+      if (files.length > MAX_IMAGE_COUNT) { setNotice('写真は最大' + MAX_IMAGE_COUNT + '枚です。', true); return; }
+      if (document.getElementById('warrantyClaim').checked && !files.length) { setNotice('保証を希望する場合は、購入証明の写真を1枚以上添付してください。', true); return; }
+      if (symptomCategory.value === 'safety' && !document.getElementById('safetyCheck').checked) { setNotice('安全を確保したことを確認してください。', true); return; }
+      if (!document.getElementById('privacyCheck').checked) { setNotice('送信への同意にチェックしてください。', true); return; }
+      state.busy = true; submitButton.disabled = true;
+      setNotice('画像を準備しています。画面を閉じずにお待ちください。');
+      try {
+        const images = await Promise.all(files.map(compressImage));
+        const submissionId = getSubmitId();
+        const payload = {
+          type:'repair_submission_v1', submission_id:submissionId, line_user_id:state.lineUserId, id_token:state.idToken,
+          qr_token:productSelect.value, symptom_category:symptomCategory.value, occurred_at:document.getElementById('occurredAt').value, detail:document.getElementById('detail').value.trim(),
+          warranty_claim_requested:document.getElementById('warrantyClaim').checked, safety_confirmation:document.getElementById('safetyCheck').checked, privacy_consent:true, images:images
+        };
+        setNotice('修理受付を送信しています。');
+        await fetch(CONFIG.webAppUrl, { method:'POST', mode:'no-cors', headers:{ 'Content-Type':'text/plain;charset=UTF-8' }, body:JSON.stringify(payload) });
+        const receipt = await waitForReceipt(submissionId);
+        form.classList.add('hidden');
+        setNotice('修理受付が完了しました。受付番号：' + (receipt.repair_request_id || submissionId) + '。送信内容をこのLINEトークに表示しました。担当者から同じトークでご連絡します。');
+      } catch (err) {
+        setNotice(String(err.message || err), true);
+        submitButton.disabled = false; state.busy = false;
+      }
+    }
+    async function init() {
+      if (!CONFIG.liffId || CONFIG.liffId.indexOf('REPLACE_WITH') === 0) { setNotice('修理受付用LIFF IDが未設定です。公開前に設定してください。', true); return; }
+      try {
+        await liff.init({ liffId:CONFIG.liffId, withLoginOnExternalBrowser:true });
+        if (!liff.isLoggedIn()) { liff.login({ redirectUri:window.location.href }); return; }
+        const profile = await liff.getProfile();
+        state.lineUserId = profile.userId || '';
+        state.idToken = liff.getIDToken() || '';
+        if (!state.lineUserId) throw new Error('LINEアカウントを確認できませんでした。');
+        state.requestedQrToken = getRequestedQrToken();
+        const result = await jsonp('get_repair_products', apiParameters());
+        if (!result.ok) throw new Error(result.error || '登録商品を取得できませんでした。');
+        state.products = Array.isArray(result.registrations) ? result.registrations : [];
+        renderProducts();
+        setNotice('修理内容を入力してください。');
+      } catch (err) { setNotice(String(err.message || err), true); }
+    }
+    productSelect.addEventListener('change', updateWarrantyHint);
+    imageInput.addEventListener('change', renderFiles);
+    symptomCategory.addEventListener('change', updateSafetyCheck);
+    form.addEventListener('submit', submitRepair);
+    document.getElementById('occurredAt').max = new Date().toISOString().slice(0, 10);
+    init();
+  </script>
+</body>
+</html>
