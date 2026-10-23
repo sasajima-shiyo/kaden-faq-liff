@@ -122,6 +122,11 @@
       background: #1f2937;
     }
 
+    .scan-retry {
+      margin-top: 10px;
+      background: #173d63;
+    }
+
     .next-actions {
       display: grid;
       gap: 10px;
@@ -143,11 +148,12 @@
       <p class="eyebrow">LINE商品登録</p>
       <h1 id="productName">商品情報を取得しています</h1>
       <p class="model" id="modelNumber">型番：-</p>
-      <p class="desc">
+      <p class="desc" id="description">
         この商品をLINEに登録すると、FAQ・取扱説明書・保証登録・修理受付をまとめて利用できます。
       </p>
 
       <button id="registerButton" disabled>この商品を登録する</button>
+      <button id="scanRetryButton" class="scan-retry hidden" type="button">QRを読み取る</button>
       <div id="nextActions" class="next-actions hidden">
         <button id="warrantyButton" class="warranty" type="button">続けて保証登録する</button>
         <button id="closeButton" class="secondary" type="button">登録を完了する</button>
@@ -156,7 +162,7 @@
       <div id="status" class="status">画面を準備しています。</div>
       <div class="info">
         qr_token：<span id="qrTokenLabel">-</span><br>
-        build：liff-register-kaden-faq-20260625-profilelink-001</div>
+        build：liff-register-kaden-faq-qr-scan-20261023-001</div>
     </section>
   </main>
 
@@ -170,10 +176,14 @@
     let currentProduct = null;
     let existingRegistration = null;
     let isBusy = false;
+    let scanMode = false;
+    let isScanning = false;
 
     const productName = document.getElementById('productName');
     const modelNumber = document.getElementById('modelNumber');
+    const description = document.getElementById('description');
     const registerButton = document.getElementById('registerButton');
+    const scanRetryButton = document.getElementById('scanRetryButton');
     const nextActions = document.getElementById('nextActions');
     const warrantyButton = document.getElementById('warrantyButton');
     const closeButton = document.getElementById('closeButton');
@@ -194,7 +204,7 @@
       }
     }
 
-    function extractQrTokenFromText(value) {
+    function extractParameterFromText(value, parameterName) {
       let text = String(value || '').trim();
 
       if (!text) {
@@ -218,7 +228,7 @@
         const pair = parts[i].split('=');
         const key = safeDecode(pair[0] || '').trim();
 
-        if (key === 'qr_token') {
+        if (key === parameterName) {
           return safeDecode(pair.slice(1).join('=') || '').trim();
         }
       }
@@ -226,9 +236,13 @@
       return '';
     }
 
-    function getQrTokenFromUrl() {
+    function extractQrTokenFromText(value) {
+      return extractParameterFromText(value, 'qr_token');
+    }
+
+    function getLiffParameter(parameterName) {
       const params = new URLSearchParams(window.location.search);
-      const direct = params.get('qr_token');
+      const direct = params.get(parameterName);
 
       if (direct) {
         return String(direct).trim();
@@ -238,7 +252,17 @@
       const state = params.get('state');
       const hash = window.location.hash || '';
 
-      return extractQrTokenFromText(liffState) || extractQrTokenFromText(state) || extractQrTokenFromText(hash);
+      return extractParameterFromText(liffState, parameterName)
+        || extractParameterFromText(state, parameterName)
+        || extractParameterFromText(hash, parameterName);
+    }
+
+    function getQrTokenFromUrl() {
+      return getLiffParameter('qr_token');
+    }
+
+    function isQrScanMode() {
+      return getLiffParameter('mode').toLowerCase() === 'scan';
     }
 
     function fetchJson(url) {
@@ -290,6 +314,67 @@
 
       productName.textContent = currentProduct.product_name || '商品名未設定';
       modelNumber.textContent = '型番：' + (currentProduct.model_number || '-');
+    }
+
+    function showScanStartView() {
+      updateProductView(null);
+      productName.textContent = '商品QRを読み取ります';
+      modelNumber.textContent = '製品本体・同梱カードのQRコードをかざしてください';
+      description.textContent = 'カメラを起動します。カメラの利用を許可してください。';
+      registerButton.disabled = true;
+      registerButton.classList.remove('hidden');
+      registerButton.textContent = 'QRを読み取っています';
+      nextActions.classList.add('hidden');
+    }
+
+    function showScanRetry(message) {
+      updateProductView(null);
+      productName.textContent = '商品QRを読み取れませんでした';
+      modelNumber.textContent = '型番：-';
+      description.textContent = '製品本体・同梱カードにあるQRコードを、もう一度読み取ってください。';
+      registerButton.disabled = true;
+      registerButton.classList.add('hidden');
+      nextActions.classList.add('hidden');
+      scanRetryButton.classList.remove('hidden');
+      setStatus(message, 'error');
+    }
+
+    async function startQrScan() {
+      if (isScanning) return;
+
+      isScanning = true;
+      scanRetryButton.disabled = true;
+      scanRetryButton.classList.add('hidden');
+      showScanStartView();
+      setStatus('カメラを起動しています。');
+
+      try {
+        if (typeof liff.scanCodeV2 !== 'function'
+          || (typeof liff.isApiAvailable === 'function' && !liff.isApiAvailable('scanCodeV2'))) {
+          throw new Error('この端末ではQR読取を利用できません。');
+        }
+
+        const result = await liff.scanCodeV2();
+        const scannedQrToken = extractQrTokenFromText(result && result.value);
+
+        if (!scannedQrToken) {
+          throw new Error('このQRコードから商品情報を取得できませんでした。製品用のQRコードを読み取ってください。');
+        }
+
+        qrToken = scannedQrToken;
+        qrTokenLabel.textContent = qrToken;
+        scanMode = false;
+        description.textContent = 'この商品をLINEに登録すると、FAQ・取扱説明書・保証登録・修理受付をまとめて利用できます。';
+        registerButton.classList.remove('hidden');
+        setStatus('商品情報と登録状況を確認しています。');
+        await checkProductAndRegistration();
+      } catch (err) {
+        const detail = String(err && err.message ? err.message : err);
+        showScanRetry('QRを読み取れませんでした。' + (detail ? ' ' + detail : ''));
+      } finally {
+        isScanning = false;
+        scanRetryButton.disabled = false;
+      }
     }
 
     function showAlreadyRegistered() {
@@ -435,12 +520,14 @@
     });
 
     warrantyButton.addEventListener('click', openWarrantyRegistration);
+    scanRetryButton.addEventListener('click', startQrScan);
 
     async function initPage() {
       qrToken = getQrTokenFromUrl();
+      scanMode = !qrToken && isQrScanMode();
       qrTokenLabel.textContent = qrToken || '-';
 
-      if (!qrToken) {
+      if (!qrToken && !scanMode) {
         updateProductView(null);
         registerButton.disabled = true;
         setStatus('qr_tokenが取得できませんでした。', 'error');
@@ -452,6 +539,11 @@
         lineUserId = await initLiffAndGetUserId();
 
         if (!lineUserId) {
+          return;
+        }
+
+        if (scanMode) {
+          await startQrScan();
           return;
         }
 
